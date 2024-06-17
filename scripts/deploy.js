@@ -1,8 +1,8 @@
+const { ethers } = require("hardhat");
+
 async function main() {
   const Mastermind = await ethers.getContractFactory("Mastermind");
   const mastermind = await Mastermind.deploy();
-
-  await mastermind.deployed();
 
   console.log("Mastermind deployed to:", mastermind.address);
 }

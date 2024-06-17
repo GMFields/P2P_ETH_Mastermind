@@ -8,7 +8,7 @@ contract Mastermind {
     uint private constant DISPUTE_TIME = 600; // Example time limit for dispute
 
     mapping(uint => Game) public games;
-    uint8 private gameCounter;
+    uint8 private gameCounter = 0;
 
     struct Game {
         address createUser;
@@ -39,22 +39,23 @@ contract Mastermind {
     event GuessSubmitted();
     event CodeRevealed();
 
-    function createGame(bool friendlyMatch, address friendAddr) external payable returns (uint){
+    function createGame(bool friendlyMatch, address friendAddr) external payable returns (uint8){
         require(msg.value > 0, "Stake required");
 
-        gameCounter++;
-        games[gameCounter] = Game({
-            createUser: msg.sender,
-            joinUser: address(0),
-            createUserPoints: 0,
-            joinUserPoints: 0,
-            friendlyMatch: friendlyMatch,
-            friendAddr: friendAddr == address(0) ? address(0) : friendAddr,
-            turns: new Turn[](0),
-            stake: msg.value,
-            active: true
-        });
 
+
+        gameCounter++;
+        Game storage newGame = games[gameCounter];
+        newGame.createUser = msg.sender;
+        newGame.joinUser = address(0);
+        newGame.createUserPoints = 0;
+        newGame.joinUserPoints = 0;
+        newGame.friendlyMatch = friendlyMatch;
+        newGame.friendAddr = friendAddr == address(0) ? address(0) : friendAddr;
+        newGame.stake = msg.value;
+        newGame.active = true;
+        newGame.turns.push(createTurn(newGame));
+    
         emit GameStart(gameCounter, msg.sender);
         return gameCounter;
     }
@@ -73,21 +74,20 @@ contract Mastermind {
         game.joinUser = msg.sender;
         game.stake += msg.value;
 
-        Turn memory firstTurn = createTurn(game);
-        game.turns.push(firstTurn);
-
         emit GameJoined(gameId, msg.sender);
     }
 
+    /*
     function joinGame() external payable returns (uint) {
         require(gameCounter > 0, "No games available");
 
         //TODO: Implement joinGame without gameId
     }
+    */
 
-    function createTurn(Game storage game) internal view returns (Turn memory){ 
-        require(game.turns.length <= MAX_TURNS, "Max turns reached");
-
+    function createTurn(Game storage game) internal view returns (Turn memory) { 
+        require(game.turns.length < MAX_TURNS, "Max turns reached");
+    
         // Randomly choose the maker and breaker
         uint8 random = uint8(uint256(keccak256(abi.encodePacked(block.timestamp, block.prevrandao))) % 2);
         address maker = game.createUser;
@@ -96,19 +96,40 @@ contract Mastermind {
             maker = game.joinUser;
             breaker = game.createUser;
         }
-
+    
         // Create the first turn
-        return Turn({
-            guess:  new uint8[](0),
-            feedback:  new uint8[](0),
-            breaker: breaker,
-            maker: maker,
-            secretCodeHash: 0,
-            revealedCode: new uint8[](0),
-            timestamp: block.timestamp
-        });
+        Turn memory turn = Turn(
+            new uint8[](0),
+            new uint8[](0),
+            breaker,
+            maker,
+            bytes32(0),
+            new uint8[](0),
+            block.timestamp
+        );
+    
+        return turn;
     }
 
+    function submitCode(uint8 gameId, bytes32 hashCode) external {
+        require(gameCounter > 0, "No games available");
+        require(gameCounter >= gameId, "Invalid game id");
+
+        Game storage game = games[gameId];
+        require(game.active, "Game not active anymore");
+        require(game.createUser == msg.sender || game.joinUser == msg.sender, "Not a player");
+
+        Turn storage turn = game.turns[game.turns.length - 1];
+        require(turn.maker == msg.sender, "Not your turn");
+        require(turn.guess.length == 0, "Game already started");
+
+        turn.secretCodeHash = hashCode;
+        turn.timestamp = block.timestamp;
+
+        emit ChangeTurn();
+    }
+
+    /*
     function submitGuess(uint8 gameId, uint8[] calldata guess) external {
         require(gameCounter > 0, "No games available");
         require(gameCounter >= gameId, "Invalid game id");
@@ -119,7 +140,7 @@ contract Mastermind {
         require(game.turns.length < MAX_TURNS, "Max turns reached");
         require(game.turns[game.turns.length - 1].breaker == msg.sender, "Not your turn");
         
-        Turn storage turn = game.turns[game.turns.length - 1];
+        Turn memory turn = game.turns[game.turns.length - 1];
         require(turn.guess.length <= MAX_GUESSES, "Max guesses reached");
         require(turn.guess.length == turn.feedback.length, "Feedback not submitted yet");
 
@@ -128,6 +149,7 @@ contract Mastermind {
 
         emit GuessSubmitted();
     }
+    */
 
     function submitFeedback() external {
 
