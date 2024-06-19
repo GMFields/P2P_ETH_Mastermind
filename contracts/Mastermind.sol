@@ -24,6 +24,7 @@ contract Mastermind {
     }
 
     struct Turn {
+        bool finished;
         uint8[][] guess;
         uint8[][] feedback;
         address breaker;
@@ -38,8 +39,53 @@ contract Mastermind {
     event GameFinish();
     event ChangeTurn();
     event GuessSubmitted(uint8 gameId, address player, uint8[] guess, uint256 timestamp);
-    event FeedbackSumbmited(uint8 gameId, address player, uint8[] feedback, uint256 timestamp);
+    event FeedbackSubmitted(uint8 gameId, address player, uint8[] feedback, uint256 timestamp);
     event CodeRevealed(uint8 gameId, address player, uint8[] code);
+
+    function decideRoles(uint8 gameiD) internal {
+        Game storage game = games[gameiD];
+
+        address maker = game.createUser;
+        address breaker = game.joinUser;
+
+        // Randomly choose the maker and breaker
+        uint8 random = uint8(uint256(keccak256(abi.encodePacked(block.timestamp, block.prevrandao))) % 2);
+        if (random == 0) {
+            maker = game.joinUser;
+            breaker = game.createUser;
+        }
+
+        game.currentTurn.maker = maker;
+        game.currentTurn.breaker = breaker;
+    }
+
+    function createTurn(Game storage game) internal returns (Turn memory) { 
+        require(game.turnCounter < MAX_TURNS, "Max turns reached");
+
+        address maker = game.currentTurn.maker;
+        address breaker = game.currentTurn.breaker;
+        if(game.currentTurn.timestamp != 0) {
+            // Keep from the old turn
+            maker = game.currentTurn.breaker;
+            breaker = game.currentTurn.maker;
+        }
+        
+        // Create the first turn
+        Turn memory turn = Turn(
+            false,
+            new uint8[][](0),
+            new uint8[][](0),
+            breaker,
+            maker,
+            bytes32(0),
+            new uint8[](0),
+            block.timestamp
+        );
+
+        game.turnCounter ++;
+    
+        return turn;
+    }
 
     function createGame(bool friendlyMatch, address friendAddr) external payable returns (uint8){
         require(msg.value > 0, "Stake required");
@@ -54,6 +100,7 @@ contract Mastermind {
             friendlyMatch,
             friendAddr == address(0) ? address(0) : friendAddr,
             Turn(
+                false,
                 new uint8[][](0),
                 new uint8[][](0),
                 address(0),
@@ -87,7 +134,6 @@ contract Mastermind {
         game.joinUser = msg.sender;
         game.stake += msg.value;
 
-        game.currentTurn = createTurn(game);
         emit GameJoined(gameId, msg.sender, game.currentTurn.maker, game.currentTurn.breaker);
     }
 
@@ -113,36 +159,7 @@ contract Mastermind {
         game.joinUser = msg.sender;
         game.stake += msg.value;
         
-        game.currentTurn = createTurn(game);
         //emit GameJoined(0, msg.sender, game.currentTurn.maker, game.currentTurn.breaker);
-    }
-
-    function createTurn(Game storage game) internal returns (Turn memory) { 
-        require(game.turnCounter < MAX_TURNS, "Max turns reached");
-    
-        // Randomly choose the maker and breaker
-        uint8 random = uint8(uint256(keccak256(abi.encodePacked(block.timestamp, block.prevrandao))) % 2);
-        address maker = game.createUser;
-        address breaker = game.joinUser;
-        if (random == 0) {
-            maker = game.joinUser;
-            breaker = game.createUser;
-        }
-    
-        // Create the first turn
-        Turn memory turn = Turn(
-            new uint8[][](0),
-            new uint8[][](0),
-            breaker,
-            maker,
-            bytes32(0),
-            new uint8[](0),
-            block.timestamp
-        );
-
-        game.turnCounter ++;
-    
-        return turn;
     }
 
     function submitCode(uint8 gameId, bytes32 hashCode) external {
@@ -159,6 +176,7 @@ contract Mastermind {
 
         turn.secretCodeHash = hashCode;
         turn.timestamp = block.timestamp;
+        game.currentTurn = createTurn(game);
     }
 
     function submitGuess(uint8 gameId, uint8[] calldata guess) external {
@@ -181,7 +199,7 @@ contract Mastermind {
         emit GuessSubmitted(gameId, msg.sender, guess, turn.timestamp);
     }
 
-    function submitFeedback(uint8 gameId, uint8[] calldata guess) external {
+    function submitFeedback(uint8 gameId, uint8[] calldata feedback) external {
         // requires
         // check all dependencies
         // TODO
@@ -190,19 +208,34 @@ contract Mastermind {
 
         Turn storage turn = game.currentTurn;
 
-        turn.feedback.push(guess);
+        turn.feedback.push(feedback);
         turn.timestamp = block.timestamp;
 
-        emit FeedbackSumbmited(gameId, msg.sender, guess, turn.timestamp);
+        bool finished = true;
+        for (uint i = 0; i < feedback.length; i++) {
+            if (feedback[i] != 2) {
+                finished = false;
+                break;
+            }
+        }
+        
+
+        emit FeedbackSubmitted(gameId, msg.sender, feedback, turn.timestamp);
     }
 
     function accuseAFK() external {
 
     }
 
-    function accuseCheating() external {
+    /*
+    function accuseCheating(uint8 gameId) external {
+        require(gameCounter > 0, "No games available");
+        require(gameCounter >= gameId, "Invalid game id");
+
+        Game storage game = games[gameId];
 
     }
+    */
 
     function revealCode(uint8 gameId, uint8[] calldata revealedCode) external {
         require(gameCounter > 0, "No games available");
@@ -219,6 +252,7 @@ contract Mastermind {
         require(turn.revealedCode.length == 0, "Code already revealed");
 
         turn.revealedCode = revealedCode;
+        
 
         // call to change turn - TODO
 
