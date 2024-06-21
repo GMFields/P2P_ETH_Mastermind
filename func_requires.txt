@@ -1,0 +1,40 @@
+### Public ###
+1. createGame(bool friendlyMatch, address friendAddr)
+
+
+2. joinGame(uint8 gameId)
+
+
+3. joinGame()
+
+
+4. submitCode(uint8 gameId, bytes32 hashCode)
+
+
+5. submitGuess(uint8 gameId, uint8[] calldata guess)
+
+
+6. submitFeedback(uint8 gameId, uint8[] calldata feedback)
+
+
+7. accuseAFK()
+
+
+8. accuseCheating(uint8 gameId)
+
+
+9. revealCode(uint8 gameId, uint8[] calldata revealedCode)
+
+
+10. finishGame(uint8 gameId)
+
+
+
+### Private ###
+1. decideRoles(uint8 gameiD)
+
+
+2. createTurn(Game storage game, bytes32 hashCode)
+
+
+3. finalizeTurn(Game storage game, Turn storage turn, uint8[] calldata revealedCode)

@@ -30,12 +30,13 @@ describe("Mastermind", function () {
         const args = receipt.logs[0].args;
         const addr = args[2] == addr1.address ? addr1 : addr2;
 
+        
         const secretCodeHash = ethers.keccak256(ethers.toUtf8Bytes("1234"));
         await mastermind.connect(addr).submitCode(1, secretCodeHash);
-
-
+        
         const game = await mastermind.games(1);
-        expect(game.currentTurn.secretCodeHash).to.deep.equal(secretCodeHash);
+        console.log(game.currentTurn.timestamp);
+        expect(game.currentTurn.secretCodeHash).to.equal(secretCodeHash);
     });
 
     it("Should submit guess and feedback", async function () {
@@ -57,6 +58,31 @@ describe("Mastermind", function () {
         expect(game.currentTurn.feedback[0].map(Number)).to.deep.equal([2, 1, 1, 0]);
     });
 
+    it("Should break the code and check cheating", async function () {
+        await mastermind.connect(addr1).createGame(true, addr2, { value: ethers.parseEther("1") });
+        const tx = await mastermind.connect(addr2).joinGame(1, { value: ethers.parseEther("1") });
+        const receipt = await tx.wait();
+        const args = receipt.logs[0].args;
+        const addr = args[2] == addr1.address ? addr1 : addr2;
+        const nAddr = addr == addr1 ? addr1 : addr2;
+
+        const secretCodeHash = ethers.keccak256(ethers.toUtf8Bytes("1234"));
+        await mastermind.connect(addr).submitCode(1, secretCodeHash);
+        await mastermind.connect(nAddr).submitGuess(1, [2, 1, 4, 3]);
+        await mastermind.connect(addr).submitFeedback(1, [1, 1, 1, 1]);
+        await mastermind.connect(nAddr).submitGuess(1, [1, 2, 3, 4]);
+        await mastermind.connect(addr).submitFeedback(1, [2, 2, 2, 2]);
+        
+        const game = await mastermind.games(1);
+        expect(game.currentTurn.finished).to.deep.equal(true);
+        
+        await mastermind.connect(addr).revealCode(1, [1, 2, 3, 4]);
+        await mastermind.connect(nAddr).accuseCheating(1);
+
+        const game2 = await mastermind.games(1);
+        expect(game2.active).to.deep.equal(true);
+    });
+
     it("Should change turn by breaking the code", async function () {
         await mastermind.connect(addr1).createGame(true, addr2, { value: ethers.parseEther("1") });
         const tx = await mastermind.connect(addr2).joinGame(1, { value: ethers.parseEther("1") });
@@ -70,11 +96,17 @@ describe("Mastermind", function () {
         await mastermind.connect(nAddr).submitGuess(1, [1, 2, 3, 4]);
         await mastermind.connect(addr).submitFeedback(1, [2, 2, 2, 2]);
         
-
-
         const game = await mastermind.games(1);
-        expect(game.currentTurn.guess[0].map(Number)).to.deep.equal([1, 3, 4, 8]);
-        expect(game.currentTurn.feedback[0].map(Number)).to.deep.equal([2, 1, 1, 0]);
+        expect(game.currentTurn.finished).to.deep.equal(true);
+        
+        await mastermind.connect(addr).revealCode(1, [1, 2, 3, 4]);
+        const secretCodeHash2 = ethers.keccak256(ethers.toUtf8Bytes("1234"));
+
+        setTimeout(async () => {
+            await mastermind.connect(addr).submitCode(1, secretCodeHash2);
+        }, 600);
+        
+        expect(game.currentTurn.secretCodeHash).to.deep.equal(secretCodeHash2);
     });
 
 });
