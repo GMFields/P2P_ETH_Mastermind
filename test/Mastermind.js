@@ -13,53 +13,43 @@ describe("Mastermind", function () {
         Mastermind = await ethers.getContractFactory("Mastermind");
         mastermind = await Mastermind.deploy();
     });
-    /*
+    
     it("Should create & join a game", async function () {
-        const txProv = await mastermind.connect(addr1).createGame(true, addr2, { value: ethers.parseEther("1") });
-        await mastermind.connect(addr2).joinGame(1, { value: ethers.parseEther("1") });
-
-        const receipt = await txProv.wait();
-        console.log("createGame:", receipt.gasUsed)
+        await mastermind.connect(addr1).createGame(true, addr2, { value: ethers.parseEther("0.000000000000000001") });
+        await mastermind.connect(addr2).joinGame(1, { value: ethers.parseEther("0.000000000000000001") });
 
         const game = await mastermind.games(1);
         expect(game.createUser).to.equal(addr1.address);
-        expect(game.stake).to.equal(ethers.parseEther("2"));
+        expect(game.stake).to.equal(ethers.parseEther("0.000000000000000002"));
     });
 
     it("Should join random game", async function () {
-        await mastermind.connect(addr1).createGame(true, addr2, { value: ethers.parseEther("1") });
-        const txProv = await mastermind.connect(addr2)["joinGame()"]({ value: ethers.parseEther("1") });
-        const receipt = await txProv.wait();
-        console.log("randomJoin:", receipt.gasUsed)
+        await mastermind.connect(addr1).createGame(true, addr2, { value: ethers.parseEther("0.000000000000000001") });
+        await mastermind.connect(addr2)["joinGameRandom()"]({ value: ethers.parseEther("0.000000000000000001") });
         
         const game = await mastermind.games(1);
         expect(game.joinUser).to.equal(addr2.address);
-        expect(game.stake).to.equal(ethers.parseEther("2"));
-        });
+        expect(game.stake).to.equal(ethers.parseEther("0.000000000000000002"));
+    });
         
         
     it("Should submit code" , async function () {   
-        await mastermind.connect(addr1).createGame(true, addr2, { value: ethers.parseEther("1") });
-        const tx = await mastermind.connect(addr2).joinGame(1, { value: ethers.parseEther("1") });
+        await mastermind.connect(addr1).createGame(true, addr2, { value: ethers.parseEther("0.000000000000000001") });
+        const tx = await mastermind.connect(addr2).joinGame(1, { value: ethers.parseEther("0.000000000000000001") });
         const receipt = await tx.wait();
         const args = receipt.logs[0].args;
         const addr = args[2] == addr1.address ? addr1 : addr2;
-        
-        console.log("specificJoin:", receipt.gasUsed)
 
         const secretCodeHash = ethers.keccak256(ethers.toUtf8Bytes("1234"));
-        const txProv = await mastermind.connect(addr).submitCode(1, secretCodeHash);
-
-        const receipt2 = await txProv.wait();
-        console.log("submitCode:", receipt2.gasUsed)
+        await mastermind.connect(addr).submitCode(1, secretCodeHash);
         
         const game = await mastermind.games(1);
         expect(game.currentTurn.secretCodeHash).to.equal(secretCodeHash);
     });
 
     it("Should submit guess and feedback", async function () {
-        await mastermind.connect(addr1).createGame(true, addr2, { value: ethers.parseEther("1") });
-        const tx = await mastermind.connect(addr2).joinGame(1, { value: ethers.parseEther("1") });
+        await mastermind.connect(addr1).createGame(true, addr2, { value: ethers.parseEther("0.000000000000000001") });
+        const tx = await mastermind.connect(addr2).joinGame(1, { value: ethers.parseEther("0.000000000000000001") });
         const receipt = await tx.wait();
         const args = receipt.logs[0].args;
         const addr = args[2] == addr1.address ? addr1 : addr2;
@@ -67,36 +57,27 @@ describe("Mastermind", function () {
         
         const secretCodeHash = ethers.keccak256(ethers.toUtf8Bytes("1234"));
         await mastermind.connect(addr).submitCode(1, secretCodeHash);
-        const txProv = await mastermind.connect(nAddr).submitGuess(1, [1, 3, 4, 8]);
+        await mastermind.connect(nAddr).submitGuess(1, [1, 3, 4, 8]);
         await mastermind.connect(addr).submitFeedback(1, [2, 1, 1, 0]);
-
-        const receipt2 = await txProv.wait();
-        console.log("submitGuess:", receipt2.gasUsed)
-        
-        
+            
         const game = await mastermind.games(1);
         expect(game.currentTurn.guess[0].map(Number)).to.deep.equal([1, 3, 4, 8]);
         expect(game.currentTurn.feedback[0].map(Number)).to.deep.equal([2, 1, 1, 0]);
     });
             
     it("Should test if user is AFK", async function () {
-        await mastermind.connect(addr1).createGame(true, addr2, { value: ethers.parseEther("1") });
-        const tx = await mastermind.connect(addr2).joinGame(1, { value: ethers.parseEther("1") });
+        await mastermind.connect(addr1).createGame(true, addr2, { value: ethers.parseEther("0.000000000000000001") });
+        const tx = await mastermind.connect(addr2).joinGame(1, { value: ethers.parseEther("0.000000000000000001") });
         const receipt = await tx.wait();
         const args = receipt.logs[0].args;
         const addr = args[2] == addr1.address ? addr1 : addr2;
 
         const secretCodeHash = ethers.keccak256(ethers.toUtf8Bytes("1234"));
         await mastermind.connect(addr).submitCode(1, secretCodeHash);
-        const txProv = await mastermind.connect(addr).accuseAfk(1);
-        const receipt2 = await txProv.wait();
-        console.log("accuseAfk:", receipt2.gasUsed)
+        await mastermind.connect(addr).accuseAfk(1);
 
         await new Promise(r => setTimeout(r, 10000));
-        const txProv2 = await mastermind.connect(addr).verifyAfk(1);
-        const receipt3 = await txProv2.wait();
-        console.log("verifyAfk:", receipt3.gasUsed)
-        
+        await mastermind.connect(addr).verifyAfk(1);   
 
         const game = await mastermind.games(1);
         expect(game.active).to.deep.equal(false);
@@ -104,8 +85,8 @@ describe("Mastermind", function () {
 
 
     it("Should test if user answer too late after accused of AFK", async function () {
-        await mastermind.connect(addr1).createGame(true, addr2, { value: ethers.parseEther("1") });
-        const tx = await mastermind.connect(addr2).joinGame(1, { value: ethers.parseEther("1") });
+        await mastermind.connect(addr1).createGame(true, addr2, { value: ethers.parseEther("0.000000000000000001") });
+        const tx = await mastermind.connect(addr2).joinGame(1, { value: ethers.parseEther("0.000000000000000001") });
         const receipt = await tx.wait();
         const args = receipt.logs[0].args;
         const addr = args[2] == addr1.address ? addr1 : addr2;
@@ -124,8 +105,8 @@ describe("Mastermind", function () {
     });
 
     it("Should break the code and check cheating", async function () {
-        await mastermind.connect(addr1).createGame(true, addr2, { value: ethers.parseEther("1") });
-        const tx = await mastermind.connect(addr2).joinGame(1, { value: ethers.parseEther("1") });
+        await mastermind.connect(addr1).createGame(true, addr2, { value: ethers.parseEther("0.000000000000000001") });
+        const tx = await mastermind.connect(addr2).joinGame(1, { value: ethers.parseEther("0.000000000000000001") });
         const receipt = await tx.wait();
         const args = receipt.logs[0].args;
         const addr = args[2] == addr1.address ? addr1 : addr2;
@@ -136,25 +117,21 @@ describe("Mastermind", function () {
         await mastermind.connect(nAddr).submitGuess(1, [2, 1, 4, 3]);
         await mastermind.connect(addr).submitFeedback(1, [1, 1, 1, 1]);
         await mastermind.connect(nAddr).submitGuess(1, [1, 2, 3, 4]);
-        const txProv = await mastermind.connect(addr).submitFeedback(1, [2, 2, 2, 2]);
-        const receipt2 = await txProv.wait();
-        console.log("submitFeedback:", receipt2.gasUsed)
+        await mastermind.connect(addr).submitFeedback(1, [2, 2, 2, 2]);
         
         const game = await mastermind.games(1);
         expect(game.currentTurn.finished).to.deep.equal(true);
         
         await mastermind.connect(addr).revealCode(1, [1, 2, 3, 4]);
-        const txProv2 = await mastermind.connect(nAddr).accuseCheating(1, 0);
-        const receipt3 = await txProv2.wait();
-        console.log("accuseCheating:", receipt3.gasUsed)
+        await mastermind.connect(nAddr).accuseCheating(1, 0);
 
         const game2 = await mastermind.games(1);
         expect(game2.active).to.deep.equal(false);
     });
 
     it("Should change turn by breaking the code", async function () {
-        await mastermind.connect(addr1).createGame(true, addr2, { value: ethers.parseEther("1") });
-        const tx = await mastermind.connect(addr2).joinGame(1, { value: ethers.parseEther("1") });
+        await mastermind.connect(addr1).createGame(true, addr2, { value: ethers.parseEther("0.000000000000000001") });
+        const tx = await mastermind.connect(addr2).joinGame(1, { value: ethers.parseEther("0.000000000000000001") });
         const receipt = await tx.wait();
         const args = receipt.logs[0].args;
         const addr = args[2] == addr1.address ? addr1 : addr2;
@@ -168,9 +145,7 @@ describe("Mastermind", function () {
         const game = await mastermind.games(1);
         expect(game.currentTurn.finished).to.deep.equal(true);
         
-        const txProv = await mastermind.connect(addr).revealCode(1, [1, 2, 3, 4]);
-        const receipt2 = await txProv.wait();
-        console.log("revealCode:", receipt2.gasUsed)
+        await mastermind.connect(addr).revealCode(1, [1, 2, 3, 4]);
         const secretCodeHash2 = ethers.keccak256(ethers.toUtf8Bytes("4321"));
 
         
@@ -178,11 +153,11 @@ describe("Mastermind", function () {
         
         const game2 = await mastermind.games(1);
         expect(game2.currentTurn.secretCodeHash).to.deep.equal(secretCodeHash2);
-    });*/
+    });
 
     it("Should test finish game", async function () {
-        await mastermind.connect(addr1).createGame(true, addr2, { value: ethers.parseEther("1") });
-        const tx = await mastermind.connect(addr2).joinGame(1, { value: ethers.parseEther("1") });
+        await mastermind.connect(addr1).createGame(true, addr2, { value: ethers.parseEther("0.000000000000000001") });
+        const tx = await mastermind.connect(addr2).joinGame(1, { value: ethers.parseEther("0.000000000000000001") });
         const receipt = await tx.wait();
         const args = receipt.logs[0].args;
         const addr = args[2] == addr1.address ? addr1 : addr2;
@@ -278,9 +253,7 @@ describe("Mastermind", function () {
         await mastermind.connect(nAddr).submitFeedback(1, [2, 2, 2, 2]);
         await mastermind.connect(nAddr).revealCode(1, [3, 4, 1, 2]);
 
-        const txProv = await mastermind.connect(addr).finishGame(1);
-        const receipt2 = await txProv.wait();
-        console.log("finishGame:", receipt2.gasUsed)
+        await mastermind.connect(addr).finishGame(1);
 
         const game = await mastermind.games(1);
         expect(game.active).to.deep.equal(false);

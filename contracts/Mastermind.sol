@@ -13,9 +13,6 @@ contract Mastermind {
     uint private constant CODE_LENGTH = 4;
     uint private constant NUM_COLORS = 10;
 
-    // TODO - should have a limit of colors
-    // TODO - maybe check after code is revealed if maker used appropriate colors
-
     mapping(uint => Game) public games;
     uint8 private gameCounter = 0;
 
@@ -46,11 +43,13 @@ contract Mastermind {
         uint256 timestamp; // to dispute
     }
 
+    constructor() {}
+
     // ########## Events ##########
     event GameStart(uint8 gameId, address creator);
     event GameJoined(uint8 gameId, address joiner, address maker, address breaker);
-    event GameFinish();
-    event ChangeTurn();
+    event GameFinish(uint8 gameId, address winner);
+    event ChangeTurn(uint8 gameId, address nextPlayer);
     event GuessSubmitted(uint8 gameId, address player, uint8[] guess, uint256 timestamp);
     event FeedbackSubmitted(uint8 gameId, address player, uint8[] feedback, uint256 timestamp);
     event CodeRevealed(uint8 gameId, address player, uint8[] code);
@@ -149,7 +148,11 @@ contract Mastermind {
         game.turnCounter ++;
     }
 
-
+    /**
+     * This function is called to defend against an AFK accusation
+     * 
+     * @param game The game to defend against the AFK accusation
+     */
     function defendAfk(Game storage game) internal {
         if(block.timestamp - game.afkTimestamp > AFK_TIME_LIMIT) {
             game.active = false;
@@ -196,7 +199,7 @@ contract Mastermind {
             game.currentTurn.maker = breaker;
             game.currentTurn.breaker = maker;
             game.whosPlaying = breaker;
-            emit ChangeTurn();
+            emit ChangeTurn(gameCounter, breaker);
         } else {
             game.whosPlaying = turn.breaker;
         }
@@ -269,12 +272,12 @@ contract Mastermind {
     }
 
 
-    /** TODO - Think its done, check later again
-     *  TODO - requires to be done
+    /** 
+     *  
      * This function is called to join a game, without a specific Id
      * 
      */
-    function joinGame() external payable {
+    function joinGameRandom() external payable {
 
         uint256 counter;
         uint8[] memory available = new uint8[](gameCounter);
@@ -323,7 +326,6 @@ contract Mastermind {
 
         if(game.turnCounter == MAX_TURNS) {
             game.active = false;
-            emit GameFinish();
             revert("Max turns reached");
         }
 
@@ -408,10 +410,14 @@ contract Mastermind {
         emit FeedbackSubmitted(gameId, msg.sender, feedback, turn.timestamp);
     }
 
-
+    /**
+     * This function is called to accuse of AFK
+     * 
+     * @param gameId The game id
+     */
     function accuseAfk(uint8 gameId) external isGameActive(games[gameId]){
         Game storage game = games[gameId];
-        // TODO - check requires;
+
         require(msg.sender == game.createUser || msg.sender == game.joinUser, "Only players can accuse");
         require(game.whosPlaying != msg.sender, "Cannot accuse when it's your turn");
         require(game.afkTimestamp == 0, "AFK accusation already in progress");
@@ -422,18 +428,27 @@ contract Mastermind {
         emit AfkAccusation(gameId, msg.sender, block.timestamp);
     }
 
+    /**
+     * This function is called to verify the AFK accusation
+     * 
+     * @param gameId The game id
+     */
     function verifyAfk(uint8 gameId) external {
         Game storage game = games[gameId];
-        // TODO - check requires
 
         require(msg.sender == game.afkAccuser, "Only accuser can verify");
         require(block.timestamp - game.afkTimestamp > AFK_TIME_LIMIT, "The window to accuse AFK is not yet oppened");
 
         game.active = false;
         payable(game.afkAccuser).transfer(game.stake);
+        emit GameFinish(gameId, game.afkAccuser);
     }
 
-    
+    /**
+     * This function is called to accuse of cheating
+     * 
+     * @param gameId The game id
+     */
     function accuseCheating(uint8 gameId, uint8 guessNmr) external 
         validGame(gameId) validGuessNmr(guessNmr) isGameActive(games[gameId]) isMakerTurn(games[gameId].currentTurn) isYourPlay(games[gameId]){
         Game storage game = games[gameId];
@@ -478,7 +493,7 @@ contract Mastermind {
         game.active = false;
 
         emit CheatAccusation(gameId, guessNmr, msg.sender, cheating);
-        emit GameFinish();
+        emit GameFinish(gameId, cheating ? msg.sender : turn.maker);
     }
 
 
@@ -497,7 +512,6 @@ contract Mastermind {
 
         if(game.turnCounter == MAX_TURNS) {
             game.active = false;
-            emit GameFinish();
         }
 
         if(msg.sender != game.afkAccuser && game.afkAccuser != address(0)) {
@@ -512,7 +526,11 @@ contract Mastermind {
         emit CodeRevealed(gameId, msg.sender, revealedCode);
     }
 
-
+    /**
+     * This function is called to finish the game
+     * 
+     * @param gameId The game id
+     */
     function finishGame(uint8 gameId) external 
         validGame(gameId) isBreakerTurn(games[gameId].currentTurn) isYourPlay(games[gameId]){
         Game storage game = games[gameId];
@@ -531,6 +549,6 @@ contract Mastermind {
             payable(game.joinUser).transfer(game.stake / 2);
         }
 
-        emit GameFinish();
+        emit GameFinish(gameId, game.createUserPoints > game.joinUserPoints ? game.createUser : game.joinUser);
     }
 }
