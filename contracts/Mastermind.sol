@@ -5,10 +5,16 @@ import "@openzeppelin/contracts/utils/Strings.sol";
 
 contract Mastermind {
     uint private constant MAX_GUESSES = 5;
-    uint private constant MAX_TURNS = 10;
+    uint private constant MAX_TURNS = 6;
+    uint private constant AFK_TIME_LIMIT = 1; // Example time limit for AFK in seconds
+    uint private constant DISPUTE_TIME = 2; // Example time limit for dispute in seconds
+
     uint8 private constant EXTRA_POINTS = 3;
-    uint private constant TIME_LIMIT = 600; // Example time limit for AFK
-    uint private constant DISPUTE_TIME = 600; // Example time limit for dispute
+    uint private constant CODE_LENGTH = 4;
+    uint private constant NUM_COLORS = 10;
+
+    // TODO - should have a limit of colors
+    // TODO - maybe check after code is revealed if maker used appropriate colors
 
     mapping(uint => Game) public games;
     uint8 private gameCounter = 0;
@@ -24,6 +30,8 @@ contract Mastermind {
         uint256 turnCounter;
         uint256 stake;
         address whosPlaying;
+        address afkAccuser;
+        uint256 afkTimestamp;
         bool active;
     }
 
@@ -38,6 +46,7 @@ contract Mastermind {
         uint256 timestamp; // to dispute
     }
 
+    // ########## Events ##########
     event GameStart(uint8 gameId, address creator);
     event GameJoined(uint8 gameId, address joiner, address maker, address breaker);
     event GameFinish();
@@ -45,16 +54,60 @@ contract Mastermind {
     event GuessSubmitted(uint8 gameId, address player, uint8[] guess, uint256 timestamp);
     event FeedbackSubmitted(uint8 gameId, address player, uint8[] feedback, uint256 timestamp);
     event CodeRevealed(uint8 gameId, address player, uint8[] code);
+    event CodeSubmitted(uint8 gameId, address player, bytes32 code);
+    event CheatAccusation(uint8 gameId, uint8 guessNmr, address accuser, bool cheating);
+    event AfkAccusation(uint8 gameId, address accuser, uint256 blockNumber);
+    event AfkResponse(uint8 gameId, address responder);
+    // ------------------------------------
 
+    // ########## Modifiers ##########
+    modifier validGame(uint8 gameId) {
+        require(gameCounter >= gameId, "Invalid game id");
+        _;
+    }
 
+    modifier rightStake() {
+        require(msg.value > 0, "Stake required");
+        _;
+    }
+
+    modifier rightLenght( uint256 length) {
+        require(length == CODE_LENGTH, "Length invalid");
+        _;
+    }
+
+    modifier validGuessNmr(uint8 guessNmr) {
+        require(guessNmr < MAX_GUESSES, "Invalid guess number");
+        _;
+    }
+
+    modifier isGameActive(Game storage game) {
+        require(game.active, "Game not active anymore");
+        _;
+    }
+
+    modifier isMakerTurn(Turn storage turn) {
+        require(msg.sender == turn.maker, "Either not you turn, or not a player");
+        _;
+    }
+
+    modifier isBreakerTurn(Turn storage turn) {
+        require(msg.sender == turn.breaker, "Either not you turn, or not a player");
+        _;
+    }
+
+    modifier isYourPlay(Game storage game) {
+        require(msg.sender == game.whosPlaying, "Not your play");
+        _;
+    }
+    // ------------------------------------
+        
     /**
      * This function is called when a game is created to decide the roles of the players
      * 
-     * @param gameiD The game id
+     * @param game The game itself
      */
-    function decideRoles(uint8 gameiD) internal {
-        Game storage game = games[gameiD];
-
+    function decideRoles(Game storage game) internal {
         address maker = game.createUser;
         address breaker = game.joinUser;
 
@@ -67,6 +120,8 @@ contract Mastermind {
 
         game.currentTurn.maker = maker;
         game.currentTurn.breaker = breaker;
+
+        game.whosPlaying = maker;
     }
 
 
@@ -75,16 +130,9 @@ contract Mastermind {
      * 
      * @param game The game to create the turn for
      */
-    function createTurn(Game storage game, bytes32 hashCode) internal { 
-        require(game.turnCounter < MAX_TURNS, "Max turns reached");
-
-        address maker = game.currentTurn.maker;
-        address breaker = game.currentTurn.breaker;
-        if(game.currentTurn.timestamp != 0) {
-            // Keep from the old turn
-            maker = game.currentTurn.breaker;
-            breaker = game.currentTurn.maker;
-        }
+    function createTurn(Game storage game, Turn storage turn, bytes32 hashCode) internal { 
+        address maker = turn.maker;
+        address breaker = turn.breaker;
         
         // Create the first turn
         game.currentTurn = Turn({
@@ -99,6 +147,19 @@ contract Mastermind {
         });
 
         game.turnCounter ++;
+    }
+
+
+    function defendAfk(Game storage game) internal {
+        if(block.timestamp - game.afkTimestamp > AFK_TIME_LIMIT) {
+            game.active = false;
+            payable(game.afkAccuser).transfer(game.stake);
+            return;
+        }
+
+        game.afkTimestamp = 0;
+        game.afkAccuser = address(0);
+        emit AfkResponse(gameCounter, msg.sender);
     }
 
 
@@ -129,6 +190,17 @@ contract Mastermind {
             game.joinUserPoints += uint8(turn.guess.length) + extraPoints;
         }
 
+        address maker = game.currentTurn.maker;
+        address breaker = game.currentTurn.breaker;
+        if(game.turnCounter != MAX_TURNS){
+            game.currentTurn.maker = breaker;
+            game.currentTurn.breaker = maker;
+            game.whosPlaying = breaker;
+            emit ChangeTurn();
+        } else {
+            game.whosPlaying = turn.breaker;
+        }
+
         turn.finished = true;   
     }
 
@@ -139,9 +211,7 @@ contract Mastermind {
      * @param friendlyMatch boolean to check if the game should be for friends
      * @param friendAddr address of the friend
      */
-    function createGame(bool friendlyMatch, address friendAddr) external payable returns (uint8){
-        require(msg.value > 0, "Stake required");
-
+    function createGame(bool friendlyMatch, address friendAddr) external payable rightStake() returns (uint8){
         gameCounter++;
         
         games[gameCounter] = Game(
@@ -164,7 +234,9 @@ contract Mastermind {
             0,
             msg.value,
             address(0),
-            true
+            address(0),
+            0,
+            false
         );
     
         emit GameStart(gameCounter, msg.sender);
@@ -177,59 +249,57 @@ contract Mastermind {
      * 
      * @param gameId The game id
      */
-    function joinGame(uint8 gameId) external payable {
-        require(gameCounter > 0, "No games available");
-        require(gameCounter >= gameId, "Invalid game id");
+    function joinGame(uint8 gameId) external payable validGame(gameId) {
 
         Game storage game = games[gameId];
-        require(game.active, "Game not active anymore");
-        require(game.joinUser == address(0), "Game already joined");
+        require(msg.value == game.stake, "Stake must match");
+        require(!game.active, "This game is already active");
         require(game.createUser != msg.sender, "Cannot join your own game");
         if (game.friendlyMatch)
-           require(game.friendAddr == msg.sender, "You don't have permission to join this game");
+           require(msg.sender == game.friendAddr, "You don't have permission to join this game");
         
-        require(msg.value == game.stake, "Stake must match");
 
         game.joinUser = msg.sender;
         game.stake += msg.value;
         game.active = true;
 
-        decideRoles(gameId);
+        decideRoles(game);
 
         emit GameJoined(gameId, msg.sender, game.currentTurn.maker, game.currentTurn.breaker);
     }
 
 
-    /** TODO
+    /** TODO - Think its done, check later again
+     *  TODO - requires to be done
      * This function is called to join a game, without a specific Id
      * 
      */
     function joinGame() external payable {
-        require(gameCounter > 0, "No games available");
 
         uint256 counter;
-        uint256[] memory available = new uint256[](gameCounter);
-        for (uint i = 0; i < gameCounter; i++) {
-            if (!games[i].active)
-                available[counter++] = i;
+        uint8[] memory available = new uint8[](gameCounter);
+        for (uint8 i = 1; i <= gameCounter; i++) {
+            if (!games[i].active && games[i].createUser != msg.sender && games[i].stake == msg.value)
+                if(games[i].friendlyMatch && games[i].friendAddr == msg.sender)
+                    available[counter++] = i;
+                else if(!games[i].friendlyMatch)
+                    available[counter++] = i;
         }
-        Game storage game = games[available[uint256(keccak256(abi.encodePacked(block.timestamp, block.prevrandao))) % counter]];
 
-        //require(game.active, "Game not active anymore");
-        require(game.joinUser == address(0), "Game already joined");
-        require(game.createUser != msg.sender, "Cannot join your own game");
-        if (game.friendlyMatch) 
-           require(game.friendAddr == msg.sender, "You don't have permission to join this game");
-        
-        require(msg.value == game.stake, "Stake must match");
+        if(counter == 0)
+            revert("No games available");
+
+        uint8 gameId = available[uint256(keccak256(abi.encodePacked(block.timestamp, block.prevrandao))) % counter];
+        Game storage game = games[gameId];
+
 
         game.joinUser = msg.sender;
         game.stake += msg.value;
         game.active = true;
 
-        //decideRoles(gameId);
+        decideRoles(game);
         
-        emit GameJoined(0, msg.sender, game.currentTurn.maker, game.currentTurn.breaker);
+        emit GameJoined(gameId, msg.sender, game.currentTurn.maker, game.currentTurn.breaker);
     }
 
 
@@ -239,25 +309,33 @@ contract Mastermind {
      * @param gameId The game id
      * @param hashCode The hash of the code
      */
-    function submitCode(uint8 gameId, bytes32 hashCode) external {
-        require(gameCounter > 0, "No games available");
-        require(gameCounter >= gameId, "Invalid game id");
+    function submitCode(uint8 gameId, bytes32 hashCode) external 
+        validGame(gameId) isGameActive(games[gameId]) isMakerTurn(games[gameId].currentTurn) isYourPlay(games[gameId]){
 
         Game storage game = games[gameId];
-        require(game.active, "Game not active anymore");
-        require(game.createUser == msg.sender || game.joinUser == msg.sender, "Not a player");
 
         Turn storage turn = game.currentTurn;
-        require(turn.maker == msg.sender, "Not your turn");
+
+        // Checks if it's not first turn
         if(turn.timestamp != 0){
             require(turn.finished, "Previous turn not finished yet");
-            if (block.timestamp - game.currentTurn.timestamp <= DISPUTE_TIME) {
-                revert("Not enough time has passed to start a new turn");
-            }
         }
-        // Check if the game enough time has passed to start new turn
 
-        createTurn(game, hashCode);
+        if(game.turnCounter == MAX_TURNS) {
+            game.active = false;
+            emit GameFinish();
+            revert("Max turns reached");
+        }
+
+        if(msg.sender != game.afkAccuser && game.afkAccuser != address(0)) {
+            defendAfk(game);
+        }
+
+
+        createTurn(game, turn, hashCode);
+        game.whosPlaying = turn.breaker;
+
+        emit CodeSubmitted(gameId, msg.sender, hashCode);
     }
 
 
@@ -267,23 +345,27 @@ contract Mastermind {
      * @param gameId The game id
      * @param guess The guess
      */
-    function submitGuess(uint8 gameId, uint8[] calldata guess) external {
-        require(gameCounter > 0, "No games available");
-        require(gameCounter >= gameId, "Invalid game id");
-
+    function submitGuess(uint8 gameId, uint8[] calldata guess) external 
+        validGame(gameId) rightLenght(guess.length) isGameActive(games[gameId])
+        isBreakerTurn(games[gameId].currentTurn) isYourPlay(games[gameId]){
         Game storage game = games[gameId];
-        require(game.active, "Game not active anymore");
-        require(game.createUser == msg.sender || game.joinUser == msg.sender, "Not a player");
-        require(game.turnCounter < MAX_TURNS, "Max turns reached");
         
         Turn storage turn = game.currentTurn;
-        require(turn.maker == msg.sender, "Not your turn");
-        require(turn.guess.length <= MAX_GUESSES, "Max guesses reached");
-        require(turn.guess.length == turn.feedback.length, "Feedback not submitted yet");
+        require(!turn.finished, "Turn already finished");
+
+        if(turn.guess.length >= MAX_GUESSES){
+            turn.finished = true;
+            revert("Max guesses reached");
+        }
+
+        if(msg.sender != game.afkAccuser && game.afkAccuser != address(0)) {
+            defendAfk(game);
+        }
 
         turn.guess.push(guess);
         turn.timestamp = block.timestamp;
 
+        game.whosPlaying = turn.maker;
         emit GuessSubmitted(gameId, msg.sender, guess, turn.timestamp);
     }
 
@@ -294,14 +376,16 @@ contract Mastermind {
      * @param gameId the game id
      * @param feedback the feedback
      */
-    function submitFeedback(uint8 gameId, uint8[] calldata feedback) external {
-        // requires
-        // check all dependencies
-        // TODO
-
+    function submitFeedback(uint8 gameId, uint8[] calldata feedback) external 
+    validGame(gameId) rightLenght(feedback.length) isGameActive(games[gameId]) isMakerTurn(games[gameId].currentTurn) isYourPlay(games[gameId]){
         Game storage game = games[gameId];
 
         Turn storage turn = game.currentTurn;
+        require(!turn.finished, "Turn already finished");
+
+        if(msg.sender != game.afkAccuser && game.afkAccuser != address(0)) {
+            defendAfk(game);
+        }
 
         turn.feedback.push(feedback);
         turn.timestamp = block.timestamp;
@@ -314,67 +398,87 @@ contract Mastermind {
             }
         }
 
-        if(finished) {
+        if(finished || turn.feedback.length == MAX_GUESSES) {
             turn.finished = true;
+            game.whosPlaying = turn.maker;
+        } else {
+            game.whosPlaying = turn.breaker;
         }
-        
 
         emit FeedbackSubmitted(gameId, msg.sender, feedback, turn.timestamp);
     }
 
-    function accuseAFK() external {
 
+    function accuseAfk(uint8 gameId) external isGameActive(games[gameId]){
+        Game storage game = games[gameId];
+        // TODO - check requires;
+        require(msg.sender == game.createUser || msg.sender == game.joinUser, "Only players can accuse");
+        require(game.whosPlaying != msg.sender, "Cannot accuse when it's your turn");
+        require(game.afkTimestamp == 0, "AFK accusation already in progress");
+
+        game.afkAccuser = msg.sender;
+        game.afkTimestamp = block.timestamp;
+
+        emit AfkAccusation(gameId, msg.sender, block.timestamp);
+    }
+
+    function verifyAfk(uint8 gameId) external {
+        Game storage game = games[gameId];
+        // TODO - check requires
+
+        require(msg.sender == game.afkAccuser, "Only accuser can verify");
+        require(block.timestamp - game.afkTimestamp > AFK_TIME_LIMIT, "The window to accuse AFK is not yet oppened");
+
+        game.active = false;
+        payable(game.afkAccuser).transfer(game.stake);
     }
 
     
-    function accuseCheating(uint8 gameId) external {
-        require(gameCounter > 0, "No games available");
-        require(gameCounter >= gameId, "Invalid game id");
-
+    function accuseCheating(uint8 gameId, uint8 guessNmr) external 
+        validGame(gameId) validGuessNmr(guessNmr) isGameActive(games[gameId]) isMakerTurn(games[gameId].currentTurn) isYourPlay(games[gameId]){
         Game storage game = games[gameId];
 
         Turn storage turn = game.currentTurn;
-
         require(turn.finished, "Turn not finished yet");
         require(block.timestamp - turn.timestamp <= DISPUTE_TIME, "The window to accuse of cheating has closed");
         
         // Logic for checking inconsistencies in feedback
         uint8[] storage revealedCode = turn.revealedCode;
-        uint8[][] storage guesses = turn.guess;
-        uint8[][] storage feedbacks = turn.feedback;
+        uint8[] storage guess = turn.guess[guessNmr];
+        uint8[] storage feedback = turn.feedback[guessNmr];
 
-        // TODO - checks all consistency in feedbacks, but pdf says client should provide own guess to dispute
-        for (uint i = 0; i < feedbacks.length; i++) {
-            uint8[] storage guess = guesses[i];
-            uint8[] storage feedback = feedbacks[i];
-            uint8[10] memory colorCount;
+        uint8[NUM_COLORS] memory colorCount;
 
-            for (uint j = 0; j < revealedCode.length; j++) {
-                colorCount[revealedCode[j]]++;
-            }
+        for (uint i = 0; i < revealedCode.length; i++) {
+            colorCount[revealedCode[i]]++;
+        }
 
-            for (uint j = 0; j < guess.length; j++) {
-                if (guess[j] == revealedCode[j]) {
-                    if (feedback[j] != 2) {
-                        game.active = false;
-                        payable(msg.sender).transfer(game.stake);
-                        return;
-                    }
-                    colorCount[guess[j]]--;
-                } else if (guess[j] != revealedCode[j]) {
-                    if (colorCount[guess[j]] > 0 && feedback[j] != 1) {
-                        game.active = false;
-                        payable(msg.sender).transfer(game.stake);
-                        return;
-                    } else if (colorCount[guess[j]] == 0 && feedback[j] != 0) {
-                        game.active = false;
-                        payable(msg.sender).transfer(game.stake);
-                        return;
-                    }
-                    colorCount[guess[j]]--;
+        bool cheating = false;
+        for (uint i = 0; i < guess.length; i++) {
+            if (guess[i] == revealedCode[i]) {
+                if (feedback[i] != 2) {
+                    cheating = true;
                 }
+                colorCount[guess[i]]--;
+            } else if (guess[i] != revealedCode[i]) {
+                if (colorCount[guess[i]] > 0 && feedback[i] != 1) {
+                    cheating = true;
+                } else if (colorCount[guess[i]] == 0 && feedback[i] != 0) {
+                    cheating = true;
+                }
+                colorCount[guess[i]]--;
             }
         }
+
+        if (cheating) {      
+            payable(msg.sender).transfer(game.stake);
+        } else {
+            payable(turn.maker).transfer(game.stake);
+        }
+        game.active = false;
+
+        emit CheatAccusation(gameId, guessNmr, msg.sender, cheating);
+        emit GameFinish();
     }
 
 
@@ -384,36 +488,39 @@ contract Mastermind {
      * @param gameId The game id
      * @param revealedCode The code to reveal
      */
-    function revealCode(uint8 gameId, uint8[] calldata revealedCode) external {
-        require(gameCounter > 0, "No games available");
-        require(gameCounter >= gameId, "Invalid game id");
-
+    function revealCode(uint8 gameId, uint8[] calldata revealedCode) external 
+        validGame(gameId) rightLenght(revealedCode.length) isGameActive(games[gameId]) isMakerTurn(games[gameId].currentTurn) isYourPlay(games[gameId]){
         Game storage game = games[gameId];
-        require(game.active, "Game not active anymore");
-        require(game.createUser == msg.sender || game.joinUser == msg.sender, "Not a player");
 
         Turn storage turn = game.currentTurn;
-        require(turn.maker == msg.sender, "Not your turn");
-        require(turn.finished || turn.guess.length == MAX_GUESSES || turn.feedback.length == MAX_GUESSES, "Turn not finished yet");
-        require(turn.revealedCode.length == 0, "Code already revealed");
+        require(turn.finished || turn.feedback.length == MAX_GUESSES, "Turn already finished");
+
+        if(game.turnCounter == MAX_TURNS) {
+            game.active = false;
+            emit GameFinish();
+        }
+
+        if(msg.sender != game.afkAccuser && game.afkAccuser != address(0)) {
+            defendAfk(game);
+        }
 
         turn.revealedCode = revealedCode;
         turn.timestamp = block.timestamp;
 
-        // TODO Done- should check if hash of revealed code matches the hash of the secret code
-        // TODO Done - should distribute the points for of the players
         finalizeTurn(game, turn, revealedCode);
 
         emit CodeRevealed(gameId, msg.sender, revealedCode);
     }
 
 
-    function finishGame(uint8 gameId) external {
+    function finishGame(uint8 gameId) external 
+        validGame(gameId) isBreakerTurn(games[gameId].currentTurn) isYourPlay(games[gameId]){
         Game storage game = games[gameId];
         require(game.turnCounter == MAX_TURNS, "Game not finished yet");
 
-        Turn storage turn = game.currentTurn;
-        require(turn.breaker == msg.sender, "Not your turn");
+        if(msg.sender != game.afkAccuser && game.afkAccuser != address(0)) {
+            defendAfk(game);
+        }
 
         if (game.createUserPoints > game.joinUserPoints) {
             payable(game.createUser).transfer(game.stake);
@@ -423,5 +530,7 @@ contract Mastermind {
             payable(game.createUser).transfer(game.stake / 2);
             payable(game.joinUser).transfer(game.stake / 2);
         }
+
+        emit GameFinish();
     }
 }

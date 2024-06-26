@@ -1,36 +1,93 @@
-### Public ###
+######### Public #########
 1. createGame(bool friendlyMatch, address friendAddr)
+    ✅ - Stake higher than 0   
 
 
 2. joinGame(uint8 gameId)
+    ✅ - gameId must correspond to real game
+    ✅ - Stake should be the same as the creator
+    ✅ - game must be inactive
+    ✅ - creator of game can't be the same as joiner
+    ✅ - if game has been flagged as friendly match -> sender must have "friends" address
 
 
 3. joinGame()
+    - requires done in for loop
+        ✅ a. game must be inactive
+        ✅ b. creator of game can't be the same as joiner
+        ✅ c. Stake should be the same as the creator
+        ✅ d. if game has been flagged as friendly match -> sender must have "friends" address
+        ✅ e. if not flagged, can join without problem
 
 
 4. submitCode(uint8 gameId, bytes32 hashCode)
+    ✅ - gameId must correspond to real game 
+    ✅ - game should be active 
+    ✅ - user submiting should be the maker 
+    ✅ - it needs to be the maker turn to submit 
+    ✅ - can't be submited in the middle of another turn, previous must be finished 
+    ✅ - checks if MAX_TURNS was reached 
+    - should check if opponent made an afk warning
 
 
 5. submitGuess(uint8 gameId, uint8[] calldata guess)
+    ✅ - gameId must correspond to real game 
+    ✅ - guess should have length of code 
+    ✅ - game should be active 
+    ✅ - user submiting should be the breaker 
+    ✅ - it needs to be the breaker turn to submit
+    ✅ - turn mustn't be finished 
+    ✅ - checks if it reached the MAX_GUESSES -> then finished game 
+    - should check if opponent made an afk warning
 
 
 6. submitFeedback(uint8 gameId, uint8[] calldata feedback)
+    ✅ - gameId must correspond to real game 
+    ✅ - feedback should have length of code 
+    ✅ - game should be active 
+    ✅ - user submiting should be the maker 
+    ✅ - it needs to be the maker turn to submit 
+    ✅ - turn mustn't be finished
+    - should check if opponent made an afk warning 
 
 
 7. accuseAFK()
 
+8. verifyAfk()
+    
 
-8. accuseCheating(uint8 gameId)
+8. accuseCheating(uint8 gameId, uint8 guessNmr)
+    ✅ - gameId must correspond to real game 
+    ✅ - guessNmr can be bigger than MAX_GUESS 
+    ✅ - game should be active 
+    ✅ - user submiting should be the breaker 
+    ✅ - it needs to be the breaker turn to submit
+    ✅ - needs to be done after game is finished 
+    ✅ - needs to be done between the time window provided 
 
 
 9. revealCode(uint8 gameId, uint8[] calldata revealedCode)
+    ✅ - gameId must correspond to real game 
+    ✅ - revealed code should have lenght of code 
+    ✅ - game should be active 
+    ✅ - user submiting should be the maker 
+    ✅ - it needs to be the maker turn to submit 
+    ✅ - either turn is finished cause breaker found combination 
+    ✅ - or MAX_GUESSES has been reached 
+    ✅ - check if turns match MAX_TURNS -> game should be finished
+    - should check if opponent made an afk warning
 
 
 10. finishGame(uint8 gameId)
+    ✅ - gameId must correspond to real game 
+    ✅ - MAX_TURNS needs to be reached for it to be lauched 
+    ✅ - user submiting should be the breaker 
+    ✅ - it needs to be the breaker turn to submit 
+    - should check if opponent made an afk warning 
 
+--------------------------------------------------------
 
-
-### Private ###
+######### Private #########
 1. decideRoles(uint8 gameiD)
 
 
@@ -38,3 +95,8 @@
 
 
 3. finalizeTurn(Game storage game, Turn storage turn, uint8[] calldata revealedCode)
+
+
+4. respondAfk(uint8 gameId) 
+
+--------------------------------------------------------
